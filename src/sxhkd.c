@@ -52,7 +52,7 @@ int mapping_count;
 int timeout;
 
 hotkey_t *hotkeys_head, *hotkeys_tail;
-bool running, grabbed, toggle_grab, reload, bell, chained, locked;
+bool running, grabbed, toggle_grab, reload, bell, chained, locked, skip;
 xcb_keysym_t abort_keysym;
 chord_t *abort_chord;
 
@@ -151,7 +151,7 @@ int main(int argc, char *argv[])
 
 	fd_set descriptors;
 
-	reload = toggle_grab = bell = chained = locked = false;
+	reload = toggle_grab = bell = chained = locked, skip = false;
 	running = true;
 
 	xcb_flush(dpy);
@@ -231,27 +231,41 @@ void key_button_event(xcb_generic_event_t *evt, uint8_t event_type)
 	uint16_t lockfield = num_lock | caps_lock | scroll_lock;
 	parse_event(evt, event_type, &keysym, &button, &modfield);
 	modfield &= ~lockfield & MOD_STATE_FIELD;
+	xcb_keycode_t *keycode = keycodes_from_keysym(keysym);
 	if (keysym != XCB_NO_SYMBOL || button != XCB_NONE) {
 		hotkey_t *hk = find_hotkey(keysym, button, modfield, event_type, &replay_event);
 		if (hk != NULL) {
-			run(hk->command, hk->sync);
-			put_status(COMMAND_PREFIX, hk->command);
+			if (skip) {
+				PUTS("SKIP this command\n");
+			} else {
+				PUTS("RUN command\n");
+				run(hk->command, hk->sync);
+				put_status(COMMAND_PREFIX, hk->command);
+			}
 		}
 	}
 	switch (event_type) {
 		case XCB_BUTTON_PRESS:
 		case XCB_BUTTON_RELEASE:
-			if (replay_event)
+			if (replay_event || skip)
 				xcb_allow_events(dpy, XCB_ALLOW_REPLAY_POINTER, XCB_CURRENT_TIME);
 			else
 				xcb_allow_events(dpy, XCB_ALLOW_SYNC_POINTER, XCB_CURRENT_TIME);
 			break;
 		case XCB_KEY_PRESS:
 		case XCB_KEY_RELEASE:
-			if (replay_event)
+			if (replay_event || skip)
 				xcb_allow_events(dpy, XCB_ALLOW_REPLAY_KEYBOARD, XCB_CURRENT_TIME);
 			else
 				xcb_allow_events(dpy, XCB_ALLOW_SYNC_KEYBOARD, XCB_CURRENT_TIME);
+			if (skip) {
+				PUTS("END SKIP\n");
+				skip = false;
+			}
+			if (!skip && *keycode == 119) { // Delete
+				PUTS("START SKIP\n");
+				skip = true;
+			}
 			break;
 	}
 	xcb_flush(dpy);
