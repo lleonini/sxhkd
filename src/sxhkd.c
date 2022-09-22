@@ -25,6 +25,7 @@
 #include <xcb/xcb_event.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/select.h>
@@ -226,24 +227,27 @@ void key_button_event(xcb_generic_event_t *evt, uint8_t event_type)
 {
 	xcb_keysym_t keysym = XCB_NO_SYMBOL;
 	xcb_button_t button = XCB_NONE;
-	bool replay_event = false;
+	bool replay_event, skip_found = false;
 	uint16_t modfield = 0;
 	uint16_t lockfield = num_lock | caps_lock | scroll_lock;
 	parse_event(evt, event_type, &keysym, &button, &modfield);
 	modfield &= ~lockfield & MOD_STATE_FIELD;
-	xcb_keycode_t *keycode = keycodes_from_keysym(keysym);
 	if (keysym != XCB_NO_SYMBOL || button != XCB_NONE) {
 		hotkey_t *hk = find_hotkey(keysym, button, modfield, event_type, &replay_event);
 		if (hk != NULL) {
 			if (skip) {
-				PUTS("SKIP this command\n");
+				PUTS("SKIPing this command\n");
 			} else {
-				PUTS("RUN command\n");
-				run(hk->command, hk->sync);
-				put_status(COMMAND_PREFIX, hk->command);
+				if (strcmp(hk->command, "@skip") == 0) {
+					skip_found = true;
+				} else {
+					run(hk->command, hk->sync);
+					put_status(COMMAND_PREFIX, hk->command);
+				}
 			}
 		}
 	}
+
 	switch (event_type) {
 		case XCB_BUTTON_PRESS:
 		case XCB_BUTTON_RELEASE:
@@ -258,16 +262,20 @@ void key_button_event(xcb_generic_event_t *evt, uint8_t event_type)
 				xcb_allow_events(dpy, XCB_ALLOW_REPLAY_KEYBOARD, XCB_CURRENT_TIME);
 			else
 				xcb_allow_events(dpy, XCB_ALLOW_SYNC_KEYBOARD, XCB_CURRENT_TIME);
-			if (skip) {
-				PUTS("END SKIP\n");
-				skip = false;
-			}
-			if (!skip && *keycode == 119) { // Delete
-				PUTS("START SKIP\n");
-				skip = true;
-			}
 			break;
 	}
+
+	// - avoid removing skip on RELEASE of the skip key itself
+	// - when a key is skipped (replay), the RELEASE event will not be triggered
+	if (event_type == XCB_KEY_PRESS && skip) {
+		PUTS("END SKIP\n");
+		skip = false;
+	}
+	if (skip_found) {
+		PUTS("START SKIP\n");
+		skip = true;
+	}
+
 	xcb_flush(dpy);
 }
 
