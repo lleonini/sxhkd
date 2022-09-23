@@ -53,7 +53,7 @@ int mapping_count;
 int timeout;
 
 hotkey_t *hotkeys_head, *hotkeys_tail;
-bool running, grabbed, toggle_grab, reload, bell, chained, locked, skip;
+bool running, grabbed, toggle_grab, reload, bell, chained, locked, skip, skip_found;
 xcb_keysym_t abort_keysym;
 chord_t *abort_chord;
 
@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
 
 	fd_set descriptors;
 
-	reload = toggle_grab = bell = chained = locked, skip = false;
+	reload = toggle_grab = bell = chained = locked = skip = skip_found = false;
 	running = true;
 
 	xcb_flush(dpy);
@@ -163,6 +163,7 @@ int main(int argc, char *argv[])
 
 		if (select(fd + 1, &descriptors, NULL, NULL, NULL) > 0) {
 			while ((evt = xcb_poll_for_event(dpy)) != NULL) {
+				skip_found = false;
 				uint8_t event_type = XCB_EVENT_RESPONSE_TYPE(evt);
 				switch (event_type) {
 					case XCB_KEY_PRESS:
@@ -178,6 +179,21 @@ int main(int argc, char *argv[])
 						PRINTF("received event %u\n", event_type);
 						break;
 				}
+				// - Avoid removing skip on RELEASE of the skip key itself
+				// - When a key is skipped (replay), the RELEASE event will not be triggered,
+				// so we disable it just after the (forwarded) key has been pressed
+				if (event_type != XCB_KEY_RELEASE && skip) {
+					PUTS("END SKIP\n");
+					skip = false;
+				}
+
+				// Skip has to be activated after the processing block to not forward the key itself
+				// And also after the disabling block to have at least 1 execution
+				if (skip_found) {
+					PUTS("START SKIP\n");
+					skip = true;
+				}
+
 				free(evt);
 			}
 		}
@@ -227,7 +243,7 @@ void key_button_event(xcb_generic_event_t *evt, uint8_t event_type)
 {
 	xcb_keysym_t keysym = XCB_NO_SYMBOL;
 	xcb_button_t button = XCB_NONE;
-	bool replay_event, skip_found = false;
+	bool replay_event = false;
 	uint16_t modfield = 0;
 	uint16_t lockfield = num_lock | caps_lock | scroll_lock;
 	parse_event(evt, event_type, &keysym, &button, &modfield);
@@ -265,16 +281,6 @@ void key_button_event(xcb_generic_event_t *evt, uint8_t event_type)
 			break;
 	}
 
-	// - avoid removing skip on RELEASE of the skip key itself
-	// - when a key is skipped (replay), the RELEASE event will not be triggered
-	if (event_type == XCB_KEY_PRESS && skip) {
-		PUTS("END SKIP\n");
-		skip = false;
-	}
-	if (skip_found) {
-		PUTS("START SKIP\n");
-		skip = true;
-	}
 
 	xcb_flush(dpy);
 }
