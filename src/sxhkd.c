@@ -179,16 +179,23 @@ int main(int argc, char *argv[])
 						PRINTF("received event %u\n", event_type);
 						break;
 				}
+
+				// Skip the next hotkey
+				//
+				// Technically the next hotkey will be captured and replayed (as the ~
+				// operator) without executing any command
+				
 				// - Avoid removing skip on RELEASE of the skip key itself
-				// - When a key is skipped (replay), the RELEASE event will not be triggered,
-				// so we disable it just after the (forwarded) key has been pressed
+				// - When a key is replayed, the RELEASE event will not be triggered,
+				//   so we disable skip just after the key has been pressed
 				if (event_type != XCB_KEY_RELEASE && skip) {
 					PUTS("END SKIP\n");
 					skip = false;
 				}
 
-				// Skip has to be activated after the processing block to not forward the key itself
-				// And also after the disabling block to have at least 1 execution
+				// - Skip has to be activated after the processing block to not replay
+				//   the key itself (command is ignored)
+				// - And also after the disabling block to have at least one replay
 				if (skip_found) {
 					PUTS("START SKIP\n");
 					skip = true;
@@ -252,7 +259,7 @@ void key_button_event(xcb_generic_event_t *evt, uint8_t event_type)
 		hotkey_t *hk = find_hotkey(keysym, button, modfield, event_type, &replay_event);
 		if (hk != NULL) {
 			if (skip) {
-				PUTS("SKIPing this command\n");
+				PUTS("SKIPping this command\n");
 			} else {
 				if (strcmp(hk->command, "@skip") == 0) {
 					skip_found = true;
@@ -280,7 +287,6 @@ void key_button_event(xcb_generic_event_t *evt, uint8_t event_type)
 				xcb_allow_events(dpy, XCB_ALLOW_SYNC_KEYBOARD, XCB_CURRENT_TIME);
 			break;
 	}
-
 
 	xcb_flush(dpy);
 }

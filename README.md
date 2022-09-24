@@ -55,6 +55,10 @@ The format of the configuration file supports a simple notation for mapping mult
 	  } \
 	  bspc node --resize $d1 $dx $dy || bspc node --resize $d2 $dx $dy
 
+	# Ignore the next hotkey (transmit it to the focussed app)
+	shift+Delete
+		@skip
+
 ## Editor Plugins
 
 ### Vim
